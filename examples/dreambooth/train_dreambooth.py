@@ -24,6 +24,7 @@ import os
 import shutil
 import warnings
 from pathlib import Path
+import datetime
 
 import numpy as np
 import torch
@@ -177,7 +178,7 @@ def log_validation(
     if args.validation_images is None:
         for _ in range(args.num_validation_images):
             with torch.autocast("cuda"):
-                image = pipeline(**pipeline_args, num_inference_steps=25, generator=generator).images[0]
+                image = pipeline(**pipeline_args, num_inference_steps=75, generator=generator).images[0] # infer默认是25
             images.append(image)
     else:
         for image in args.validation_images:
@@ -810,8 +811,8 @@ def main(args):
             " Please use `huggingface-cli login` to authenticate with the Hub."
         )
 
-    logging_dir = Path(args.output_dir, args.logging_dir)
-
+    # logging_dir = Path(args.output_dir, args.logging_dir)
+    logging_dir = args.logging_dir
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -1166,7 +1167,8 @@ def main(args):
     if accelerator.is_main_process:
         tracker_config = vars(copy.deepcopy(args))
         tracker_config.pop("validation_images")
-        accelerator.init_trackers("dreambooth", config=tracker_config)
+        now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        accelerator.init_trackers(now, config=tracker_config)  # 让项目名称保持为时间
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -1363,7 +1365,7 @@ def main(args):
 
                     images = []
 
-                    if args.validation_prompt is not None and global_step % args.validation_steps == 0:
+                    if args.validation_prompt is not None and global_step % args.validation_steps == 0 or global_step==1:
                         images = log_validation(
                             unwrap_model(text_encoder) if text_encoder is not None else text_encoder,
                             tokenizer,
