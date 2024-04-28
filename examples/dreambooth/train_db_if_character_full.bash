@@ -1,6 +1,7 @@
 set -v
 
 # s1_girl_character_if_v2
+
 export project_name="s1_girl_character_if_v1" # !modify
 export MODEL_NAME="DeepFloyd/IF-I-XL-v1.0"
 export INSTANCE_ID="s1_girl_character" # !modify
