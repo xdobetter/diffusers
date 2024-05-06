@@ -144,6 +144,7 @@ def log_validation(
         revision=args.revision,
         variant=args.variant,
         torch_dtype=weight_dtype,
+        safety_checker=None,
         **pipeline_args,
     )
 
@@ -183,7 +184,7 @@ def log_validation(
     else:
         for image in args.validation_images:
             image = Image.open(image)
-            image = pipeline(**pipeline_args, image=image, generator=generator).images[0]
+            image = pipeline(**pipeline_args, image=image, generator=generator).images[0] # 默认是可以让image做prompt
             images.append(image)
 
     for tracker in accelerator.trackers:
@@ -1402,6 +1403,7 @@ def main(args):
             unet=unwrap_model(unet),
             revision=args.revision,
             variant=args.variant,
+            safety_checker=None,
             **pipeline_args,
         )
 

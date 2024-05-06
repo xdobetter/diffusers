@@ -52,7 +52,8 @@ def convert(base_model_path, checkpoint_path, LORA_PREFIX_UNET, LORA_PREFIX_TEXT
         temp_name = layer_infos.pop(0)
         while len(layer_infos) > -1:
             try:
-                curr_layer = curr_layer.__getattr__(temp_name)
+                if temp_name!="text_encoder":
+                    curr_layer = curr_layer.__getattr__(temp_name)
                 if len(layer_infos) > 0:
                     temp_name = layer_infos.pop(0)
                 elif len(layer_infos) == 0:

@@ -121,7 +121,7 @@ def log_validation(
     args,
     accelerator,
     pipeline_args,
-    epoch,
+    global_step,
     is_final_validation=False,
 ):
     logger.info(
@@ -165,7 +165,7 @@ def log_validation(
         phase_name = "test" if is_final_validation else "validation"
         if tracker.name == "tensorboard":
             np_images = np.stack([np.asarray(img) for img in images])
-            tracker.writer.add_images(phase_name, np_images, epoch, dataformats="NHWC")
+            tracker.writer.add_images(phase_name, np_images, global_step, dataformats="NHWC")
         if tracker.name == "wandb":
             tracker.log(
                 {
@@ -274,6 +274,15 @@ def parse_args(input_args=None):
     )
     parser.add_argument(
         "--validation_epochs",
+        type=int,
+        default=50,
+        help=(
+            "Run dreambooth validation every X epochs. Dreambooth validation consists of running the prompt"
+            " `args.validation_prompt` multiple times: `args.num_validation_images`."
+        ),
+    )
+    parser.add_argument(
+        "--validation_steps",
         type=int,
         default=50,
         help=(
@@ -738,8 +747,10 @@ def main(args):
             " Please use `huggingface-cli login` to authenticate with the Hub."
         )
 
-    logging_dir = Path(args.output_dir, args.logging_dir)
-
+    # logging_dir = Path(args.output_dir, args.logging_dir)
+    #
+    # accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
+    logging_dir = args.logging_dir
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -1152,7 +1163,9 @@ def main(args):
     if accelerator.is_main_process:
         tracker_config = vars(copy.deepcopy(args))
         tracker_config.pop("validation_images")
-        accelerator.init_trackers("dreambooth-lora", config=tracker_config)
+        import datetime
+        now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        accelerator.init_trackers(now, config=tracker_config)  # 让项目名称保持为时间
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -1327,6 +1340,34 @@ def main(args):
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
+                    if args.validation_prompt is not None and global_step % args.validation_steps == 0 or global_step == 1:
+                        # create pipeline
+                        pipeline = DiffusionPipeline.from_pretrained(
+                            args.pretrained_model_name_or_path,
+                            unet=unwrap_model(unet),
+                            text_encoder=None if args.pre_compute_text_embeddings else unwrap_model(text_encoder),
+                            revision=args.revision,
+                            variant=args.variant,
+                            torch_dtype=weight_dtype,
+                            safety_checker=None,
+                        )
+
+                        if args.pre_compute_text_embeddings:
+                            pipeline_args = {
+                                "prompt_embeds": validation_prompt_encoder_hidden_states,
+                                "negative_prompt_embeds": validation_prompt_negative_prompt_embeds,
+                            }
+                        else:
+                            pipeline_args = {"prompt": args.validation_prompt,"num_inference_steps": 70}
+
+                        images = log_validation(
+                            pipeline,
+                            args,
+                            accelerator,
+                            pipeline_args,
+                            global_step,
+                        )
+
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
             accelerator.log(logs, step=global_step)
@@ -1334,33 +1375,6 @@ def main(args):
             if global_step >= args.max_train_steps:
                 break
 
-        if accelerator.is_main_process:
-            if args.validation_prompt is not None and epoch % args.validation_epochs == 0:
-                # create pipeline
-                pipeline = DiffusionPipeline.from_pretrained(
-                    args.pretrained_model_name_or_path,
-                    unet=unwrap_model(unet),
-                    text_encoder=None if args.pre_compute_text_embeddings else unwrap_model(text_encoder),
-                    revision=args.revision,
-                    variant=args.variant,
-                    torch_dtype=weight_dtype,
-                )
-
-                if args.pre_compute_text_embeddings:
-                    pipeline_args = {
-                        "prompt_embeds": validation_prompt_encoder_hidden_states,
-                        "negative_prompt_embeds": validation_prompt_negative_prompt_embeds,
-                    }
-                else:
-                    pipeline_args = {"prompt": args.validation_prompt}
-
-                images = log_validation(
-                    pipeline,
-                    args,
-                    accelerator,
-                    pipeline_args,
-                    epoch,
-                )
 
     # Save the lora layers
     accelerator.wait_for_everyone()
@@ -1385,15 +1399,16 @@ def main(args):
         # Final inference
         # Load previous pipeline
         pipeline = DiffusionPipeline.from_pretrained(
-            args.pretrained_model_name_or_path, revision=args.revision, variant=args.variant, torch_dtype=weight_dtype
+            args.pretrained_model_name_or_path, revision=args.revision, variant=args.variant, torch_dtype=weight_dtype,safety_checker=None
         )
 
         # load attention processors
         pipeline.load_lora_weights(args.output_dir, weight_name="pytorch_lora_weights.safetensors")
-
+        print("load_lora_weight")
         # run inference
         images = []
         if args.validation_prompt and args.num_validation_images > 0:
+            print("args.validation_prompt")
             pipeline_args = {"prompt": args.validation_prompt, "num_inference_steps": 25}
             images = log_validation(
                 pipeline,

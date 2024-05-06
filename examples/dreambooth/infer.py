@@ -1,3 +1,4 @@
+# infer from all
 # from diffusers import StableDiffusionPipeline
 # import torch
 
@@ -10,7 +11,7 @@
 # image.save("dog-bucket.png")
 
 
-
+# infer from checkpoint
 from diffusers import DiffusionPipeline, UNet2DConditionModel
 from transformers import CLIPTextModel
 import torch

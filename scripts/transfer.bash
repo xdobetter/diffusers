@@ -1,0 +1,1 @@
+python convert_lora_safetensor_to_diffusers.py --base_model_path "runwayml/stable-diffusion-v1-5" --checkpoint_path ../examples/dreambooth/model/s15_girl_character_lora_v3_c500/pytorch_lora_weights.safetensors --dump_path "./test/" --device "cuda:0"
